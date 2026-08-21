@@ -1,1 +1,502 @@
-<!doctype html><html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>YouTube Player</title><style>html,body{margin:0;width:100%;height:100%;background:#08060c;overflow:hidden}#player{width:100%;height:100%}#fallback{display:none;color:#fff;font:600 14px system-ui;text-align:center;padding:24px}</style></head><body><div id="player"></div><div id="fallback">YouTube oynatıcı yüklenemedi.</div><script src="https://www.youtube.com/iframe_api"></script><script>const q=new URLSearchParams(location.search),id=q.get('id')||'',autoplay=q.get('autoplay')==='1',start=Math.max(0,Number(q.get('start')||0));let yt=null;function post(event,info){try{if(parent&&parent!==window)parent.postMessage({event,info},'*')}catch(e){}}function onYouTubeIframeAPIReady(){if(!id){document.getElementById('fallback').style.display='block';return}yt=new YT.Player('player',{videoId:id,width:'100%',height:'100%',playerVars:{autoplay:autoplay?1:0,controls:1,playsinline:1,rel:0,modestbranding:1,start:Math.floor(start)},events:{onReady:e=>{post('onReady',0);if(autoplay)e.target.playVideo()},onStateChange:e=>post('onStateChange',e.data),onError:e=>post('onError',e.data)}})}window.addEventListener('message',e=>{const d=typeof e.data==='string'?(()=>{try{return JSON.parse(e.data)}catch(_){return null}})():e.data;if(!d||d.event!=='command'||!yt)return;try{switch(d.func){case'playVideo':yt.playVideo();break;case'pauseVideo':yt.pauseVideo();break;case'seekTo':yt.seekTo(Number(d.args?.[0]||0),true);break;case'setVolume':yt.setVolume(Number(d.args?.[0]||100));break}}catch(_){}});setInterval(()=>{if(yt){try{post('syncTime',yt.getCurrentTime())}catch(_){}}},1000);</script></body></html>
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>YouTube Player</title>
+
+<style>
+html,body{
+  margin:0;
+  padding:0;
+  width:100%;
+  height:100%;
+  background:#08060c;
+  overflow:hidden;
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+}
+
+#app{
+  width:100%;
+  height:100%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:#08060c;
+}
+
+#player{
+  width:100%;
+  height:100%;
+  background:#000;
+}
+
+#fallback{
+  display:none;
+  width:100%;
+  height:100%;
+  align-items:center;
+  justify-content:center;
+  flex-direction:column;
+  gap:12px;
+  color:#fff;
+  text-align:center;
+  padding:24px;
+  box-sizing:border-box;
+}
+
+#fallback.show{
+  display:flex;
+}
+
+#fallback strong{
+  font-size:18px;
+}
+
+#fallback span{
+  color:#aaa;
+  font-size:14px;
+}
+
+#openYoutube{
+  display:none;
+  border:0;
+  border-radius:12px;
+  padding:12px 18px;
+  background:#ff0033;
+  color:#fff;
+  font-weight:700;
+  font-size:14px;
+}
+</style>
+</head>
+
+<body>
+
+<div id="app">
+
+  <div id="player"></div>
+
+  <div id="fallback">
+    <strong>YouTube oynatıcısı yüklenemedi</strong>
+    <span id="errorText">Video bağlantısını kontrol edin.</span>
+    <button id="openYoutube">YouTube'da Aç</button>
+  </div>
+
+</div>
+
+<script>
+(function(){
+
+  "use strict";
+
+  const params = new URLSearchParams(window.location.search);
+
+  let videoId =
+    params.get("videoId") ||
+    params.get("video") ||
+    params.get("id") ||
+    "";
+
+  let start =
+    parseInt(params.get("start") || "0",10);
+
+  if(!Number.isFinite(start) || start < 0){
+    start = 0;
+  }
+
+  let autoplay =
+    params.get("autoplay") === "1" ? 1 : 0;
+
+  let mute =
+    params.get("mute") === "1" ? 1 : 0;
+
+  let controls =
+    params.get("controls") === "0" ? 0 : 1;
+
+  const playerBox = document.getElementById("player");
+  const fallback = document.getElementById("fallback");
+  const errorText = document.getElementById("errorText");
+  const openYoutube = document.getElementById("openYoutube");
+
+  let player = null;
+  let apiReady = false;
+
+  function cleanVideoId(value){
+
+    if(!value) return "";
+
+    value = String(value).trim();
+
+    /*
+      Normal YouTube ID
+    */
+    if(/^[a-zA-Z0-9_-]{11}$/.test(value)){
+      return value;
+    }
+
+    /*
+      Full YouTube URL
+    */
+    try{
+      const url = new URL(value);
+
+      if(
+        url.hostname.includes("youtube.com") ||
+        url.hostname.includes("youtu.be")
+      ){
+
+        if(url.hostname.includes("youtu.be")){
+          return url.pathname.replace("/","").substring(0,11);
+        }
+
+        const v = url.searchParams.get("v");
+
+        if(v){
+          return v.substring(0,11);
+        }
+
+        const parts = url.pathname.split("/");
+
+        const embedIndex = parts.indexOf("embed");
+
+        if(embedIndex !== -1 && parts[embedIndex+1]){
+          return parts[embedIndex+1].substring(0,11);
+        }
+
+        const shortsIndex = parts.indexOf("shorts");
+
+        if(shortsIndex !== -1 && parts[shortsIndex+1]){
+          return parts[shortsIndex+1].substring(0,11);
+        }
+      }
+
+    }catch(e){}
+
+    return "";
+  }
+
+  videoId = cleanVideoId(videoId);
+
+  function showError(message){
+
+    playerBox.style.display = "none";
+
+    errorText.textContent =
+      message || "Video yüklenemedi.";
+
+    fallback.classList.add("show");
+
+    if(videoId){
+      openYoutube.style.display = "block";
+      openYoutube.onclick = function(){
+        window.open(
+          "https://www.youtube.com/watch?v=" +
+          encodeURIComponent(videoId),
+          "_blank"
+        );
+      };
+    }
+  }
+
+  if(!videoId){
+
+    showError(
+      "Video ID bulunamadı. Lütfen bir YouTube videosu seçin."
+    );
+
+    return;
+  }
+
+  /*
+    YouTube IFrame API
+  */
+
+  window.onYouTubeIframeAPIReady = function(){
+
+    apiReady = true;
+
+    try{
+
+      player = new YT.Player("player",{
+
+        videoId:videoId,
+
+        width:"100%",
+        height:"100%",
+
+        playerVars:{
+          autoplay:autoplay,
+          controls:controls,
+          rel:0,
+          modestbranding:1,
+          playsinline:1,
+          enablejsapi:1,
+          origin:window.location.origin,
+          start:start
+        },
+
+        events:{
+
+          onReady:function(event){
+
+            fallback.classList.remove("show");
+            playerBox.style.display = "block";
+
+            if(mute){
+              try{
+                event.target.mute();
+              }catch(e){}
+            }
+
+            window.parent.postMessage({
+              type:"youtube-player-ready",
+              videoId:videoId
+            },"*");
+
+          },
+
+          onStateChange:function(event){
+
+            let state = event.data;
+
+            let name = "unknown";
+
+            if(window.YT && YT.PlayerState){
+
+              if(state === YT.PlayerState.UNSTARTED){
+                name = "unstarted";
+              }
+
+              if(state === YT.PlayerState.ENDED){
+                name = "ended";
+              }
+
+              if(state === YT.PlayerState.PLAYING){
+                name = "playing";
+              }
+
+              if(state === YT.PlayerState.PAUSED){
+                name = "paused";
+              }
+
+              if(state === YT.PlayerState.BUFFERING){
+                name = "buffering";
+              }
+
+            }
+
+            window.parent.postMessage({
+
+              type:"youtube-player-state",
+              state:name,
+              currentTime:
+                player && player.getCurrentTime
+                ? player.getCurrentTime()
+                : 0
+
+            },"*");
+
+          },
+
+          onError:function(event){
+
+            let message =
+              "YouTube videosu oynatılamadı.";
+
+            if(event && event.data){
+
+              if(event.data === 2){
+                message =
+                  "Video ID geçersiz.";
+              }
+
+              if(event.data === 5){
+                message =
+                  "YouTube oynatıcı hatası.";
+              }
+
+              if(event.data === 100){
+                message =
+                  "Video bulunamadı veya kaldırılmış.";
+              }
+
+              if(event.data === 101 || event.data === 150){
+                message =
+                  "Bu video harici oynatmaya izin vermiyor.";
+              }
+            }
+
+            showError(message);
+
+            window.parent.postMessage({
+              type:"youtube-player-error",
+              message:message
+            },"*");
+
+          }
+
+        }
+
+      });
+
+    }catch(error){
+
+      showError(
+        "YouTube oynatıcısı başlatılamadı."
+      );
+
+    }
+
+  };
+
+  /*
+    YouTube API scriptini yükle
+  */
+
+  const script = document.createElement("script");
+
+  script.src =
+    "https://www.youtube.com/iframe_api";
+
+  script.async = true;
+
+  script.onerror = function(){
+
+    /*
+      API yüklenmezse doğrudan iframe ile
+      ikinci güvenli yöntem
+    */
+
+    playerBox.innerHTML =
+      '<iframe ' +
+      'width="100%" ' +
+      'height="100%" ' +
+      'src="https://www.youtube.com/embed/' +
+      encodeURIComponent(videoId) +
+      '?playsinline=1&rel=0&modestbranding=1&start=' +
+      start +
+      '" ' +
+      'frameborder="0" ' +
+      'allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" ' +
+      'allowfullscreen>' +
+      '</iframe>';
+
+    playerBox.style.display = "block";
+
+  };
+
+  document.head.appendChild(script);
+
+
+  /*
+    Ana uygulamadan gelen komutlar
+  */
+
+  window.addEventListener("message",function(event){
+
+    const data = event.data;
+
+    if(!data || typeof data !== "object"){
+      return;
+    }
+
+    if(!player){
+      return;
+    }
+
+    try{
+
+      if(data.type === "play"){
+        player.playVideo();
+      }
+
+      if(data.type === "pause"){
+        player.pauseVideo();
+      }
+
+      if(data.type === "stop"){
+        player.stopVideo();
+      }
+
+      if(data.type === "mute"){
+        player.mute();
+      }
+
+      if(data.type === "unmute"){
+        player.unMute();
+      }
+
+      if(data.type === "seek"){
+
+        const seconds =
+          Number(data.seconds);
+
+        if(Number.isFinite(seconds)){
+          player.seekTo(seconds,true);
+        }
+
+      }
+
+      if(data.type === "setVolume"){
+
+        const volume =
+          Math.max(
+            0,
+            Math.min(
+              100,
+              Number(data.volume)
+            )
+          );
+
+        player.setVolume(volume);
+
+      }
+
+      if(data.type === "loadVideo"){
+
+        const newId =
+          cleanVideoId(data.videoId);
+
+        if(newId){
+
+          videoId = newId;
+
+          player.loadVideoById({
+            videoId:newId,
+            startSeconds:
+              Number(data.start || 0)
+          });
+
+        }
+
+      }
+
+      if(data.type === "cueVideo"){
+
+        const newId =
+          cleanVideoId(data.videoId);
+
+        if(newId){
+
+          videoId = newId;
+
+          player.cueVideoById({
+            videoId:newId,
+            startSeconds:
+              Number(data.start || 0)
+          });
+
+        }
+
+      }
+
+    }catch(e){}
+
+  });
+
+})();
+</script>
+
+</body>
+</html>
