@@ -1,72 +1,70 @@
 <!DOCTYPE html>
 <html lang="tr">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>YouTube Player</title>
 
 <style>
-html,body{
-  margin:0;
-  padding:0;
-  width:100%;
-  height:100%;
-  background:#08060c;
-  overflow:hidden;
-  font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+html,
+body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: #08060c;
+    overflow: hidden;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
-#app{
-  width:100%;
-  height:100%;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  background:#08060c;
+#app {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #08060c;
 }
 
-#player{
-  width:100%;
-  height:100%;
-  background:#000;
+#player {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: none;
 }
 
-#fallback{
-  display:none;
-  width:100%;
-  height:100%;
-  align-items:center;
-  justify-content:center;
-  flex-direction:column;
-  gap:12px;
-  color:#fff;
-  text-align:center;
-  padding:24px;
-  box-sizing:border-box;
+#fallback {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    color: #ffffff;
+    text-align: center;
+    background: #08060c;
 }
 
-#fallback.show{
-  display:flex;
+#fallback .icon {
+    font-size: 52px;
+    margin-bottom: 14px;
 }
 
-#fallback strong{
-  font-size:18px;
+#fallback .title {
+    font-size: 18px;
+    font-weight: 700;
 }
 
-#fallback span{
-  color:#aaa;
-  font-size:14px;
+#fallback .text {
+    margin-top: 8px;
+    font-size: 14px;
+    opacity: .65;
 }
 
-#openYoutube{
-  display:none;
-  border:0;
-  border-radius:12px;
-  padding:12px 18px;
-  background:#ff0033;
-  color:#fff;
-  font-weight:700;
-  font-size:14px;
+iframe {
+    width: 100%;
+    height: 100%;
+    border: 0;
 }
 </style>
 </head>
@@ -75,425 +73,261 @@ html,body{
 
 <div id="app">
 
-  <div id="player"></div>
+    <iframe
+        id="player"
+        allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+        allowfullscreen>
+    </iframe>
 
-  <div id="fallback">
-    <strong>YouTube oynatıcısı yüklenemedi</strong>
-    <span id="errorText">Video bağlantısını kontrol edin.</span>
-    <button id="openYoutube">YouTube'da Aç</button>
-  </div>
+    <div id="fallback">
+        <div class="icon">▶️</div>
+        <div class="title">YouTube oynatıcı hazır</div>
+        <div class="text">Bir video seçildiğinde burada oynatılacak.</div>
+    </div>
 
 </div>
 
 <script>
-(function(){
+(function () {
 
-  "use strict";
+    "use strict";
 
-  const params = new URLSearchParams(window.location.search);
+    const iframe = document.getElementById("player");
+    const fallback = document.getElementById("fallback");
 
-  let videoId =
-    params.get("videoId") ||
-    params.get("video") ||
-    params.get("id") ||
-    "";
+    let videoId = "";
+    let currentStart = 0;
 
-  let start =
-    parseInt(params.get("start") || "0",10);
+    function cleanVideoId(value) {
 
-  if(!Number.isFinite(start) || start < 0){
-    start = 0;
-  }
+        if (!value) return "";
 
-  let autoplay =
-    params.get("autoplay") === "1" ? 1 : 0;
+        let text = String(value).trim();
 
-  let mute =
-    params.get("mute") === "1" ? 1 : 0;
+        try {
+            if (text.includes("youtube.com") || text.includes("youtu.be")) {
 
-  let controls =
-    params.get("controls") === "0" ? 0 : 1;
+                const url = new URL(text);
 
-  const playerBox = document.getElementById("player");
-  const fallback = document.getElementById("fallback");
-  const errorText = document.getElementById("errorText");
-  const openYoutube = document.getElementById("openYoutube");
+                if (url.hostname.includes("youtu.be")) {
+                    return url.pathname.replace("/", "").split("/")[0];
+                }
 
-  let player = null;
-  let apiReady = false;
+                if (url.searchParams.get("v")) {
+                    return url.searchParams.get("v");
+                }
 
-  function cleanVideoId(value){
+                const parts = url.pathname.split("/");
 
-    if(!value) return "";
+                const embedIndex = parts.indexOf("embed");
 
-    value = String(value).trim();
+                if (embedIndex !== -1 && parts[embedIndex + 1]) {
+                    return parts[embedIndex + 1];
+                }
 
-    /*
-      Normal YouTube ID
-    */
-    if(/^[a-zA-Z0-9_-]{11}$/.test(value)){
-      return value;
+                const shortsIndex = parts.indexOf("shorts");
+
+                if (shortsIndex !== -1 && parts[shortsIndex + 1]) {
+                    return parts[shortsIndex + 1];
+                }
+            }
+        } catch (e) {}
+
+        text = text
+            .replace(/^.*[?&]v=/, "")
+            .replace(/^.*youtu\.be\//, "")
+            .replace(/^.*\/embed\//, "")
+            .split("&")[0]
+            .split("?")[0]
+            .split("#")[0]
+            .trim();
+
+        return text;
     }
 
-    /*
-      Full YouTube URL
-    */
-    try{
-      const url = new URL(value);
+    function showPlayer(id, start) {
 
-      if(
-        url.hostname.includes("youtube.com") ||
-        url.hostname.includes("youtu.be")
-      ){
+        const cleanId = cleanVideoId(id);
 
-        if(url.hostname.includes("youtu.be")){
-          return url.pathname.replace("/","").substring(0,11);
+        if (!cleanId) {
+            fallback.style.display = "flex";
+            iframe.style.display = "none";
+            return;
         }
 
-        const v = url.searchParams.get("v");
+        videoId = cleanId;
+        currentStart = Number(start || 0);
 
-        if(v){
-          return v.substring(0,11);
+        const origin = encodeURIComponent(window.location.origin);
+
+        let src =
+            "https://www.youtube.com/embed/" +
+            encodeURIComponent(videoId) +
+            "?autoplay=1" +
+            "&rel=0" +
+            "&playsinline=1" +
+            "&enablejsapi=1" +
+            "&origin=" + origin;
+
+        if (currentStart > 0) {
+            src += "&start=" + Math.floor(currentStart);
         }
 
-        const parts = url.pathname.split("/");
+        iframe.src = src;
 
-        const embedIndex = parts.indexOf("embed");
+        fallback.style.display = "none";
+        iframe.style.display = "block";
+    }
 
-        if(embedIndex !== -1 && parts[embedIndex+1]){
-          return parts[embedIndex+1].substring(0,11);
-        }
+    function postToYouTube(command, args) {
 
-        const shortsIndex = parts.indexOf("shorts");
+        if (!iframe.contentWindow) return;
 
-        if(shortsIndex !== -1 && parts[shortsIndex+1]){
-          return parts[shortsIndex+1].substring(0,11);
-        }
-      }
-
-    }catch(e){}
-
-    return "";
-  }
-
-  videoId = cleanVideoId(videoId);
-
-  function showError(message){
-
-    playerBox.style.display = "none";
-
-    errorText.textContent =
-      message || "Video yüklenemedi.";
-
-    fallback.classList.add("show");
-
-    if(videoId){
-      openYoutube.style.display = "block";
-      openYoutube.onclick = function(){
-        window.open(
-          "https://www.youtube.com/watch?v=" +
-          encodeURIComponent(videoId),
-          "_blank"
+        iframe.contentWindow.postMessage(
+            JSON.stringify({
+                event: "command",
+                func: command,
+                args: args || []
+            }),
+            "https://www.youtube.com"
         );
-      };
     }
-  }
 
-  if(!videoId){
+    window.addEventListener("message", function (event) {
 
-    showError(
-      "Video ID bulunamadı. Lütfen bir YouTube videosu seçin."
-    );
+        let data = event.data;
 
-    return;
-  }
+        if (!data) return;
 
-  /*
-    YouTube IFrame API
-  */
-
-  window.onYouTubeIframeAPIReady = function(){
-
-    apiReady = true;
-
-    try{
-
-      player = new YT.Player("player",{
-
-        videoId:videoId,
-
-        width:"100%",
-        height:"100%",
-
-        playerVars:{
-          autoplay:autoplay,
-          controls:controls,
-          rel:0,
-          modestbranding:1,
-          playsinline:1,
-          enablejsapi:1,
-          origin:window.location.origin,
-          start:start
-        },
-
-        events:{
-
-          onReady:function(event){
-
-            fallback.classList.remove("show");
-            playerBox.style.display = "block";
-
-            if(mute){
-              try{
-                event.target.mute();
-              }catch(e){}
+        if (typeof data === "string") {
+            try {
+                data = JSON.parse(data);
+            } catch (e) {
+                return;
             }
-
-            window.parent.postMessage({
-              type:"youtube-player-ready",
-              videoId:videoId
-            },"*");
-
-          },
-
-          onStateChange:function(event){
-
-            let state = event.data;
-
-            let name = "unknown";
-
-            if(window.YT && YT.PlayerState){
-
-              if(state === YT.PlayerState.UNSTARTED){
-                name = "unstarted";
-              }
-
-              if(state === YT.PlayerState.ENDED){
-                name = "ended";
-              }
-
-              if(state === YT.PlayerState.PLAYING){
-                name = "playing";
-              }
-
-              if(state === YT.PlayerState.PAUSED){
-                name = "paused";
-              }
-
-              if(state === YT.PlayerState.BUFFERING){
-                name = "buffering";
-              }
-
-            }
-
-            window.parent.postMessage({
-
-              type:"youtube-player-state",
-              state:name,
-              currentTime:
-                player && player.getCurrentTime
-                ? player.getCurrentTime()
-                : 0
-
-            },"*");
-
-          },
-
-          onError:function(event){
-
-            let message =
-              "YouTube videosu oynatılamadı.";
-
-            if(event && event.data){
-
-              if(event.data === 2){
-                message =
-                  "Video ID geçersiz.";
-              }
-
-              if(event.data === 5){
-                message =
-                  "YouTube oynatıcı hatası.";
-              }
-
-              if(event.data === 100){
-                message =
-                  "Video bulunamadı veya kaldırılmış.";
-              }
-
-              if(event.data === 101 || event.data === 150){
-                message =
-                  "Bu video harici oynatmaya izin vermiyor.";
-              }
-            }
-
-            showError(message);
-
-            window.parent.postMessage({
-              type:"youtube-player-error",
-              message:message
-            },"*");
-
-          }
-
         }
 
-      });
+        if (!data || typeof data !== "object") return;
 
-    }catch(error){
+        /*
+         * Mevcut Suno Asistan yapısıyla uyumlu:
+         * {
+         *   type: "cueVideo",
+         *   videoId: "...",
+         *   start: 0
+         * }
+         */
 
-      showError(
-        "YouTube oynatıcısı başlatılamadı."
-      );
+        if (data.type === "cueVideo") {
 
-    }
+            const id = cleanVideoId(
+                data.videoId ||
+                data.url ||
+                data.src ||
+                data.id
+            );
 
-  };
+            if (id) {
+                showPlayer(
+                    id,
+                    Number(data.start || data.startSeconds || 0)
+                );
+            }
 
-  /*
-    YouTube API scriptini yükle
-  */
+            return;
+        }
 
-  const script = document.createElement("script");
+        if (data.type === "playVideo") {
+            postToYouTube("playVideo");
+            return;
+        }
 
-  script.src =
-    "https://www.youtube.com/iframe_api";
+        if (data.type === "pauseVideo") {
+            postToYouTube("pauseVideo");
+            return;
+        }
 
-  script.async = true;
+        if (data.type === "stopVideo") {
+            postToYouTube("stopVideo");
+            return;
+        }
 
-  script.onerror = function(){
+        if (data.type === "seekTo") {
+
+            postToYouTube(
+                "seekTo",
+                [
+                    Number(data.seconds || 0),
+                    true
+                ]
+            );
+
+            return;
+        }
+
+        if (data.type === "loadVideo") {
+
+            const id = cleanVideoId(
+                data.videoId ||
+                data.url ||
+                data.id
+            );
+
+            if (id) {
+                showPlayer(
+                    id,
+                    Number(data.start || 0)
+                );
+            }
+
+            return;
+        }
+
+        if (data.type === "setVideo") {
+
+            const id = cleanVideoId(
+                data.videoId ||
+                data.url ||
+                data.id
+            );
+
+            if (id) {
+                showPlayer(
+                    id,
+                    Number(data.start || 0)
+                );
+            }
+
+            return;
+        }
+
+    });
 
     /*
-      API yüklenmezse doğrudan iframe ile
-      ikinci güvenli yöntem
-    */
+     * URL üzerinden doğrudan test edebilmek için:
+     *
+     * youtube-player.html?v=VIDEO_ID
+     */
 
-    playerBox.innerHTML =
-      '<iframe ' +
-      'width="100%" ' +
-      'height="100%" ' +
-      'src="https://www.youtube.com/embed/' +
-      encodeURIComponent(videoId) +
-      '?playsinline=1&rel=0&modestbranding=1&start=' +
-      start +
-      '" ' +
-      'frameborder="0" ' +
-      'allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" ' +
-      'allowfullscreen>' +
-      '</iframe>';
+    try {
 
-    playerBox.style.display = "block";
+        const params = new URLSearchParams(
+            window.location.search
+        );
 
-  };
+        const initialId =
+            params.get("v") ||
+            params.get("videoId") ||
+            params.get("id");
 
-  document.head.appendChild(script);
+        const initialStart =
+            Number(params.get("start") || 0);
 
-
-  /*
-    Ana uygulamadan gelen komutlar
-  */
-
-  window.addEventListener("message",function(event){
-
-    const data = event.data;
-
-    if(!data || typeof data !== "object"){
-      return;
-    }
-
-    if(!player){
-      return;
-    }
-
-    try{
-
-      if(data.type === "play"){
-        player.playVideo();
-      }
-
-      if(data.type === "pause"){
-        player.pauseVideo();
-      }
-
-      if(data.type === "stop"){
-        player.stopVideo();
-      }
-
-      if(data.type === "mute"){
-        player.mute();
-      }
-
-      if(data.type === "unmute"){
-        player.unMute();
-      }
-
-      if(data.type === "seek"){
-
-        const seconds =
-          Number(data.seconds);
-
-        if(Number.isFinite(seconds)){
-          player.seekTo(seconds,true);
+        if (initialId) {
+            showPlayer(initialId, initialStart);
         }
 
-      }
-
-      if(data.type === "setVolume"){
-
-        const volume =
-          Math.max(
-            0,
-            Math.min(
-              100,
-              Number(data.volume)
-            )
-          );
-
-        player.setVolume(volume);
-
-      }
-
-      if(data.type === "loadVideo"){
-
-        const newId =
-          cleanVideoId(data.videoId);
-
-        if(newId){
-
-          videoId = newId;
-
-          player.loadVideoById({
-            videoId:newId,
-            startSeconds:
-              Number(data.start || 0)
-          });
-
-        }
-
-      }
-
-      if(data.type === "cueVideo"){
-
-        const newId =
-          cleanVideoId(data.videoId);
-
-        if(newId){
-
-          videoId = newId;
-
-          player.cueVideoById({
-            videoId:newId,
-            startSeconds:
-              Number(data.start || 0)
-          });
-
-        }
-
-      }
-
-    }catch(e){}
-
-  });
+    } catch (e) {}
 
 })();
 </script>
